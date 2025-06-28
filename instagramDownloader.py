@@ -8,6 +8,52 @@ def safe_filename(s: str) -> str:
     s = s.replace(' ', '_')
     return s
 
+def get_instagram_info(insta_url: str) -> tuple[bool, dict]:
+    """
+    Instagram video bilgilerini alır (indirmeden).
+    Başarılıysa (True, bilgi_dict), başarısızsa (False, hata_mesajı) döndürür.
+    """
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+    }
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(insta_url, download=False)
+            
+            # Thumbnail URL'sini farklı alanlardan almaya çalış
+            thumbnail = None
+            if info.get('thumbnail'):
+                thumbnail = info.get('thumbnail')
+            elif info.get('thumbnails') and len(info.get('thumbnails', [])) > 0:
+                # En yüksek kaliteli thumbnail'i al
+                thumbnails = info.get('thumbnails', [])
+                best_thumb = max(thumbnails, key=lambda x: x.get('height', 0) if x.get('height') else 0)
+                thumbnail = best_thumb.get('url')
+            elif info.get('webpage_url'):
+                # Webpage URL'den thumbnail oluştur
+                thumbnail = f"https://www.instagram.com/p/{info.get('id', '')}/media/?size=l"
+            
+            # Bilgileri çıkar
+            video_info = {
+                'title': info.get('title', 'Instagram Video'),
+                'duration': info.get('duration'),
+                'thumbnail': thumbnail,
+                'uploader': info.get('uploader'),
+                'view_count': info.get('view_count'),
+                'like_count': info.get('like_count'),
+                'comment_count': info.get('comment_count'),
+                'id': info.get('id'),
+                'webpage_url': info.get('webpage_url'),
+            }
+            
+            print(f"Instagram info: {video_info}")  # Debug için
+            
+            return True, video_info
+    except Exception as e:
+        print(f"Instagram info error: {e}")  # Debug için
+        return False, f"Bilgi alma hatası: {e}"
+
 def download_instagram_video(insta_url: str, output_dir: str = "videos") -> tuple[bool, str]:
     """
     Verilen Instagram video (reels dahil) linkinden en yüksek kalitede videoyu indirir.
