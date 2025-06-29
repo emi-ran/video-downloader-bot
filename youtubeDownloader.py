@@ -2,9 +2,11 @@ import os
 import re
 import subprocess
 from pytubefix import YouTube
+import unicodedata
 
 def safe_filename(s: str) -> str:
-    """Dosya adlarındaki özel karakterleri ve boşlukları temizler."""
+    """Dosya adlarındaki özel karakterleri ve boşlukları temizler, Türkçe karakterleri ASCII'ye çevirir."""
+    s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii')
     s = re.sub(r'[^\w\-_. ]', '_', s)
     s = s.replace(' ', '_')
     return s

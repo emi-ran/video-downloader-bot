@@ -5,14 +5,29 @@ import time
 import base64
 import requests
 from datetime import datetime, timedelta
-from flask import Flask, request, render_template, send_from_directory, jsonify, url_for
+from flask import Flask, request, render_template, send_from_directory, jsonify, url_for, session, redirect
 from youtubeDownloader import get_video_title, get_video_streams, get_audio_streams, download_video
 from instagramDownloader import download_instagram_video, get_instagram_info
 from tiktokDownloader import download_tiktok_video, get_tiktok_info
 from pytubefix import YouTube
 from database import init_db, add_download, update_download_count, get_total_statistics, get_platform_statistics, get_recent_downloads
+from config import config
+import sqlite3
 
+# Environment'dan config seçimi
+config_name = os.environ.get('FLASK_ENV', 'default')
 app = Flask(__name__)
+app.config.from_object(config[config_name])
+
+# Admin yetkisi kontrolü için decorator
+def admin_required(f):
+    def decorated_function(*args, **kwargs):
+        if 'admin_logged_in' not in session:
+            return jsonify({'success': False, 'error': 'Yetkisiz erişim'}), 401
+        return f(*args, **kwargs)
+    decorated_function.__name__ = f.__name__
+    return decorated_function
+
 DOWNLOAD_DIR = os.path.join(os.getcwd(), 'downloads')
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -326,5 +341,211 @@ def download_thumbnail_as_base64(url):
         print(f"Thumbnail indirme hatası: {e}")
         return None
 
+@app.route('/admin')
+def admin_panel():
+    # Giriş yapılmamışsa login sayfasına yönlendir
+    if 'admin_logged_in' not in session:
+        return redirect('/admin/login')
+    return render_template('admin.html')
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        # Kullanıcı adı ve şifre kontrolü
+        if username == 'emiran' and password == 'Enesmal55!s':
+            session['admin_logged_in'] = True
+            session['admin_username'] = username
+            return redirect('/admin')
+        else:
+            return render_template('admin_login.html', error='Geçersiz kullanıcı adı veya şifre!')
+    
+    return render_template('admin_login.html')
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('admin_logged_in', None)
+    session.pop('admin_username', None)
+    return redirect('/admin/login')
+
+@app.route('/admin.js')
+@admin_required
+def admin_js():
+    return send_from_directory('templates', 'admin.js', mimetype='application/javascript')
+
+@app.route('/api/admin/downloads')
+@admin_required
+def api_admin_downloads():
+    # Parametreler: page, page_size, search, sort_by, sort_dir, platform, status, date_from, date_to
+    page = int(request.args.get('page', 1))
+    page_size = int(request.args.get('page_size', 20))
+    search = request.args.get('search', '').strip()
+    sort_by = request.args.get('sort_by', 'timestamp')
+    sort_dir = request.args.get('sort_dir', 'desc')
+    platform = request.args.get('platform')
+    status = request.args.get('status')
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+
+    offset = (page - 1) * page_size
+    params = []
+    where = []
+
+    if search:
+        where.append("(video_title LIKE ? OR link LIKE ? OR ip_address LIKE ? OR user_agent LIKE ?)")
+        params += [f"%{search}%"] * 4
+    if platform:
+        where.append("platform = ?")
+        params.append(platform)
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    if date_from:
+        where.append("timestamp >= ?")
+        params.append(date_from)
+    if date_to:
+        where.append("timestamp <= ?")
+        params.append(date_to)
+
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ''
+    sort_sql = f"ORDER BY {sort_by} {sort_dir.upper()}"
+    limit_sql = f"LIMIT ? OFFSET ?"
+    params += [page_size, offset]
+
+    with sqlite3.connect('downloads.db') as conn:
+        c = conn.cursor()
+        total_query = f"SELECT COUNT(*) FROM downloads {where_sql}"
+        c.execute(total_query, params[:-2])
+        total = c.fetchone()[0]
+
+        query = f"SELECT id, ip_address, user_agent, platform, link, video_title, video_quality, file_size, processing_time, status, error_message, timestamp FROM downloads {where_sql} {sort_sql} {limit_sql}"
+        c.execute(query, params)
+        rows = c.fetchall()
+
+    columns = ["id", "ip_address", "user_agent", "platform", "link", "video_title", "video_quality", "file_size", "processing_time", "status", "error_message", "timestamp"]
+    data = [dict(zip(columns, row)) for row in rows]
+    return jsonify({
+        'success': True,
+        'total': total,
+        'page': page,
+        'page_size': page_size,
+        'data': data
+    })
+
+@app.route('/api/admin/charts')
+@admin_required
+def api_admin_charts():
+    """Grafikler için veri döndürür"""
+    try:
+        with sqlite3.connect('downloads.db') as conn:
+            c = conn.cursor()
+            
+            # Platform dağılımı
+            c.execute('''
+                SELECT platform, COUNT(*) as count 
+                FROM downloads 
+                GROUP BY platform 
+                ORDER BY count DESC
+            ''')
+            platform_data = [{'platform': row[0], 'count': row[1]} for row in c.fetchall()]
+            
+            # Günlük indirme sayıları (son 30 gün)
+            c.execute('''
+                SELECT DATE(timestamp) as date, COUNT(*) as count 
+                FROM downloads 
+                WHERE timestamp >= date('now', '-30 days')
+                GROUP BY DATE(timestamp) 
+                ORDER BY date
+            ''')
+            daily_data = [{'date': row[0], 'count': row[1]} for row in c.fetchall()]
+            
+            # Başarı oranları
+            c.execute('''
+                SELECT 
+                    platform,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful,
+                    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failed
+                FROM downloads 
+                GROUP BY platform
+            ''')
+            success_data = []
+            for row in c.fetchall():
+                platform, total, successful, failed = row
+                success_rate = (successful / total * 100) if total > 0 else 0
+                success_data.append({
+                    'platform': platform,
+                    'total': total,
+                    'successful': successful,
+                    'failed': failed,
+                    'success_rate': round(success_rate, 1)
+                })
+            
+            # Saatlik dağılım
+            c.execute('''
+                SELECT strftime('%H', timestamp) as hour, COUNT(*) as count 
+                FROM downloads 
+                WHERE timestamp >= date('now', '-7 days')
+                GROUP BY strftime('%H', timestamp) 
+                ORDER BY hour
+            ''')
+            hourly_data = [{'hour': int(row[0]), 'count': row[1]} for row in c.fetchall()]
+            
+            # Dosya boyutu dağılımı
+            c.execute('''
+                SELECT 
+                    CASE 
+                        WHEN file_size < 1024*1024 THEN '0-1MB'
+                        WHEN file_size < 10*1024*1024 THEN '1-10MB'
+                        WHEN file_size < 50*1024*1024 THEN '10-50MB'
+                        WHEN file_size < 100*1024*1024 THEN '50-100MB'
+                        ELSE '100MB+'
+                    END as size_range,
+                    COUNT(*) as count
+                FROM downloads 
+                WHERE file_size IS NOT NULL
+                GROUP BY size_range
+                ORDER BY 
+                    CASE size_range
+                        WHEN '0-1MB' THEN 1
+                        WHEN '1-10MB' THEN 2
+                        WHEN '10-50MB' THEN 3
+                        WHEN '50-100MB' THEN 4
+                        ELSE 5
+                    END
+            ''')
+            size_data = [{'range': row[0], 'count': row[1]} for row in c.fetchall()]
+            
+            # Genel istatistikler
+            c.execute('''
+                SELECT 
+                    AVG(file_size) as avg_file_size,
+                    AVG(processing_time) as avg_processing_time,
+                    COUNT(*) as total_downloads,
+                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful_downloads
+                FROM downloads 
+                WHERE file_size IS NOT NULL AND processing_time IS NOT NULL
+            ''')
+            general_stats = c.fetchone()
+            
+            return jsonify({
+                'success': True,
+                'platform_distribution': platform_data,
+                'daily_downloads': daily_data,
+                'success_rates': success_data,
+                'hourly_distribution': hourly_data,
+                'file_size_distribution': size_data,
+                'general_stats': {
+                    'avg_file_size': general_stats[0] if general_stats[0] else 0,
+                    'avg_processing_time': general_stats[1] if general_stats[1] else 0,
+                    'total_downloads': general_stats[2] if general_stats[2] else 0,
+                    'successful_downloads': general_stats[3] if general_stats[3] else 0
+                }
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=False, host='0.0.0.0', port=5000) 
