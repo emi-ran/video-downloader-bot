@@ -43,6 +43,10 @@ async def youtube_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(f"Hata: {video_streams}")
         return
 
+    # Stream bilgilerini önbellekte tut
+    context.user_data['video_streams'] = video_streams
+    context.user_data['video_title'] = title
+
     # Önce kapak fotoğrafı (varsa) ayrı bir mesaj olarak gönder
     try:
         thumbnail_url = YouTube(url).thumbnail_url
@@ -73,30 +77,46 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     data = query.data
 
-    # YouTube video kalite seçimi (yt_video_{index}_{url})
+    # YouTube video kalite seçimi (yt_video_{index})
     if data.startswith("yt_video_"):
-        _, _, video_index, url = data.split("_", 3)
-        video_index = int(video_index)
-        status, streams = get_video_streams(url)
-        if not status:
-            await query.edit_message_text(f"Hata: {streams}")
+        video_index = int(data.split("_")[2])
+        url = context.user_data.get('current_url')
+        if not url:
+            await query.edit_message_text("URL bulunamadı, lütfen tekrar deneyin.")
             return
-        selected_stream = next((s for s in streams if s['index'] == video_index), None)
-        if selected_stream and selected_stream['is_progressive']:
+            
+        # Önbellekteki stream bilgilerini kullan
+        video_streams = context.user_data.get('video_streams')
+        if not video_streams:
+            await query.edit_message_text("Stream bilgileri bulunamadı, lütfen tekrar deneyin.")
+            return
+            
+        selected_stream = next((s for s in video_streams if s['index'] == video_index), None)
+        if not selected_stream:
+            await query.edit_message_text("Seçilen stream bulunamadı.")
+            return
+            
+        if selected_stream['is_progressive']:
             await query.edit_message_text("İndirme işlemi başlatılıyor...")
             await download_and_send_video(update, context, url, video_index)
         else:
-            status, audio_streams = get_audio_streams(url)
-            if not status:
-                await query.edit_message_text(f"Hata: {audio_streams}")
-                return
-            status, title = get_video_title(url)
+            # Ses stream'lerini önbellekte kontrol et
+            audio_streams = context.user_data.get('audio_streams')
+            if not audio_streams:
+                # Ses stream'lerini al ve önbellekte tut
+                status, audio_streams = get_audio_streams(url)
+                if not status:
+                    await query.edit_message_text(f"Hata: {audio_streams}")
+                    return
+                context.user_data['audio_streams'] = audio_streams
+            
+            title = context.user_data.get('video_title', 'Video')
             keyboard = []
             for stream in audio_streams:
                 text = f"{stream['abr']} - {stream['size_mb']}MB"
-                callback_data = f"yt_audio_{stream['index']}_{video_index}_{url}"
+                callback_data = f"yt_audio_{stream['index']}_{video_index}"
                 keyboard.append([InlineKeyboardButton(text, callback_data=callback_data)])
-            keyboard.append([InlineKeyboardButton("⬅️ Geri", callback_data=f"yt_geri_{url}")])
+            keyboard.append([InlineKeyboardButton("⬅️ Geri", callback_data="yt_geri")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             metin = f"*{title}*\nLütfen ses kalitesini seçin:"
             if query.message.photo:
@@ -104,23 +124,39 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             else:
                 await query.edit_message_text(metin, reply_markup=reply_markup, parse_mode='Markdown')
         return
-    # YouTube ses kalite seçimi (yt_audio_{audio_index}_{video_index}_{url})
+        
+    # YouTube ses kalite seçimi (yt_audio_{audio_index}_{video_index})
     if data.startswith("yt_audio_"):
-        _, _, audio_index, video_index, url = data.split("_", 4)
-        audio_index = int(audio_index)
-        video_index = int(video_index)
+        parts = data.split("_")
+        audio_index = int(parts[2])
+        video_index = int(parts[3])
+        url = context.user_data.get('current_url')
+        if not url:
+            await query.edit_message_text("URL bulunamadı, lütfen tekrar deneyin.")
+            return
+            
         await query.edit_message_text("İndirme ve birleştirme işlemi başlatılıyor...")
         await download_and_send_video(update, context, url, video_index, audio_index)
         return
-    # Geri butonu (yt_geri_{url})
-    if data.startswith("yt_geri_"):
-        url = data[len("yt_geri_"):]
-        status, title = get_video_title(url)
-        status, video_streams = get_video_streams(url)
+        
+    # Geri butonu (yt_geri)
+    if data == "yt_geri":
+        url = context.user_data.get('current_url')
+        if not url:
+            await query.edit_message_text("URL bulunamadı, lütfen tekrar deneyin.")
+            return
+            
+        # Önbellekteki bilgileri kullan
+        title = context.user_data.get('video_title')
+        video_streams = context.user_data.get('video_streams')
+        if not title or not video_streams:
+            await query.edit_message_text("Bilgiler bulunamadı, lütfen tekrar deneyin.")
+            return
+            
         keyboard = []
         for stream in video_streams:
             text = f"{stream['resolution']} ({stream['fps']}fps) - {stream['size_mb']}MB"
-            callback_data = f"yt_video_{stream['index']}_{url}"
+            callback_data = f"yt_video_{stream['index']}"
             keyboard.append([InlineKeyboardButton(text, callback_data=callback_data)])
         keyboard.append([InlineKeyboardButton("❌ İptal", callback_data="iptal")])
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -130,10 +166,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode='Markdown'
         )
         return
+        
     # İptal butonu
     if data == "iptal":
         await query.edit_message_text("İşlem iptal edildi.")
         return
+        
     # Eski sistemle uyumlu kalması için (komutlu kullanımda)
     url = context.user_data.get('url')
     if not url and not data.startswith('iptal'):
@@ -142,20 +180,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if data.startswith("video_"):
         video_index = int(data.split("_")[1])
         context.user_data['video_index'] = video_index
-        status, streams = get_video_streams(url)
-        if not status:
-            await query.edit_message_text(f"Hata: {streams}")
+        
+        # Önbellekteki stream bilgilerini kullan
+        video_streams = context.user_data.get('video_streams')
+        if not video_streams:
+            await query.edit_message_text("Stream bilgileri bulunamadı, lütfen tekrar deneyin.")
             return
-        selected_stream = next((s for s in streams if s['index'] == video_index), None)
-        if selected_stream and selected_stream['is_progressive']:
+            
+        selected_stream = next((s for s in video_streams if s['index'] == video_index), None)
+        if not selected_stream:
+            await query.edit_message_text("Seçilen stream bulunamadı.")
+            return
+            
+        if selected_stream['is_progressive']:
             await query.edit_message_text("İndirme işlemi başlatılıyor...")
             await download_and_send_video(update, context, url, video_index)
         else:
-            status, audio_streams = get_audio_streams(url)
-            if not status:
-                await query.edit_message_text(f"Hata: {audio_streams}")
-                return
-            status, title = get_video_title(url)
+            # Ses stream'lerini önbellekte kontrol et
+            audio_streams = context.user_data.get('audio_streams')
+            if not audio_streams:
+                # Ses stream'lerini al ve önbellekte tut
+                status, audio_streams = get_audio_streams(url)
+                if not status:
+                    await query.edit_message_text(f"Hata: {audio_streams}")
+                    return
+                context.user_data['audio_streams'] = audio_streams
+            
+            title = context.user_data.get('video_title', 'Video')
             keyboard = []
             for stream in audio_streams:
                 text = f"{stream['abr']} - {stream['size_mb']}MB"
@@ -173,6 +224,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         video_index = context.user_data.get('video_index')
         await query.edit_message_text("İndirme ve birleştirme işlemi başlatılıyor...")
         await download_and_send_video(update, context, url, video_index, audio_index)
+    elif data == "geri_video":
+        # Video kalite seçimine geri dön
+        url = context.user_data.get('url')
+        if not url:
+            await query.edit_message_text("URL bulunamadı, lütfen tekrar deneyin.")
+            return
+            
+        title = context.user_data.get('video_title')
+        video_streams = context.user_data.get('video_streams')
+        if not title or not video_streams:
+            await query.edit_message_text("Bilgiler bulunamadı, lütfen tekrar deneyin.")
+            return
+            
+        keyboard = []
+        for stream in video_streams:
+            text = f"{stream['resolution']} ({stream['fps']}fps) - {stream['size_mb']}MB"
+            callback_data = f"video_{stream['index']}"
+            keyboard.append([InlineKeyboardButton(text, callback_data=callback_data)])
+        keyboard.append([InlineKeyboardButton("❌ İptal", callback_data="iptal")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"*{title}*\n\nLütfen indirmek istediğiniz video kalitesini seçin:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
 
 async def download_and_send_video(update, context, url, video_index, audio_index=None):
@@ -188,18 +264,37 @@ async def download_and_send_video(update, context, url, video_index, audio_index
     # Her durumda kaydet
     add_download(user_id, username, "YouTube", url, "success" if status else "fail")
     if not status:
-        await update.effective_message.reply_text(f"Hata oluştu: {result}")
+        # Callback query için mesaj referansını kontrol et
+        if hasattr(update, 'callback_query') and update.callback_query:
+            await update.callback_query.edit_message_text(f"Hata oluştu: {result}")
+        else:
+            await update.effective_message.reply_text(f"Hata oluştu: {result}")
         return
 
     final_video_path = result
-    sending_msg = await update.effective_message.reply_text("Video gönderiliyor, bu işlem biraz zaman alabilir...")
+    
+    # Callback query için mesaj referansını kontrol et
+    if hasattr(update, 'callback_query') and update.callback_query:
+        sending_msg = await update.callback_query.edit_message_text("Video gönderiliyor, bu işlem biraz zaman alabilir...")
+        chat = update.effective_chat
+    else:
+        sending_msg = await update.effective_message.reply_text("Video gönderiliyor, bu işlem biraz zaman alabilir...")
+        chat = update.effective_chat
+        
     try:
         with open(final_video_path, 'rb') as video_file:
-            await update.effective_chat.send_video(video=video_file, supports_streaming=True)
-        await sending_msg.delete()
+            await chat.send_video(video=video_file, supports_streaming=True)
+        # Mesajı silmeye çalış, ama hata olursa görmezden gel
+        try:
+            await sending_msg.delete()
+        except:
+            pass
     except Exception as e:
         if 'timed out' not in str(e).lower():
-            await sending_msg.edit_text(f"Video gönderilemedi: {e}")
+            try:
+                await sending_msg.edit_text(f"Video gönderilemedi: {e}")
+            except:
+                await chat.send_text(f"Video gönderilemedi: {e}")
     finally:
         if os.path.exists(final_video_path):
             os.remove(final_video_path)
@@ -262,20 +357,30 @@ async def universal_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if any(domain in text for domain in YOUTUBE_DOMAINS):
         url = next((word for word in text.split() if any(domain in word for domain in YOUTUBE_DOMAINS)), None)
         if url:
+            # URL'yi context'te sakla
+            context.user_data['current_url'] = url
+            
             # Kalite seçeneklerini butonlarla gönder
             status, title = get_video_title(url)
             if not status:
                 await update.message.reply_text(f"Hata: {title}")
                 return
+                
             status, video_streams = get_video_streams(url)
             if not status or not video_streams:
                 await update.message.reply_text(f"Hata: {video_streams}")
                 return
+                
+            # Stream bilgilerini önbellekte tut
+            context.user_data['video_streams'] = video_streams
+            context.user_data['video_title'] = title
+            
             keyboard = []
             for stream in video_streams:
                 text_btn = f"{stream['resolution']} ({stream['fps']}fps) - {stream['size_mb']}MB"
-                callback_data = f"yt_video_{stream['index']}_{url}"
+                callback_data = f"yt_video_{stream['index']}"
                 keyboard.append([InlineKeyboardButton(text_btn, callback_data=callback_data)])
+            keyboard.append([InlineKeyboardButton("❌ İptal", callback_data="iptal")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 f"*{title}*\n\nLütfen indirmek istediğiniz video kalitesini seçin:",
@@ -311,7 +416,7 @@ async def youtube_universal(update, context, url):
     # En yüksek kaliteyi seç (ilk stream)
     selected_video = video_streams[0]
     if selected_video['is_progressive']:
-        status, result = download_video(url, video_index=selected_video['index'])
+        status, result = download_video(url=url, video_index=selected_video['index'])
     else:
         # Adaptive ise en yüksek ses stream'ini de seç
         status, audio_streams = get_audio_streams(url)
@@ -319,7 +424,7 @@ async def youtube_universal(update, context, url):
             await update.message.reply_text(f"Hata: {audio_streams}")
             return
         selected_audio = audio_streams[0]
-        status, result = download_video(url, video_index=selected_video['index'], audio_index=selected_audio['index'])
+        status, result = download_video(url=url, video_index=selected_video['index'], audio_index=selected_audio['index'])
     if not status:
         await update.message.reply_text(f"Hata: {result}")
         return
@@ -368,7 +473,7 @@ async def tiktok_universal(update, context, url):
 
 def main() -> None:
     """Botu başlatır."""
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    token = "7788044450:AAE08m5aDTc7nhuiG9PAqoB0pXGWLTic_0c"
     if not token:
         print("Hata: TELEGRAM_BOT_TOKEN ortam değişkeni bulunamadı.")
         return

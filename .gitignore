@@ -1,3 +1,45 @@
+# Geçici dosyalar
 /temp
 /videos
-/__pycache__
+/downloads
+
+# Python cache dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE dosyaları
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Log dosyaları
+*.log
+
+# Database dosyaları
+*.db
+*.sqlite
+*.sqlite3
+
+# Ortam değişkenleri
+.env
+.env.local
+
+# Sistem dosyaları
+.DS_Store
+Thumbs.db
+
+# İndirilen dosyalar
+*.mp4
+*.mp3
+*.avi
+*.mov
+*.mkv
+*.webm
