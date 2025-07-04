@@ -473,7 +473,7 @@ async def tiktok_universal(update, context, url):
 
 def main() -> None:
     """Botu başlatır."""
-    token = "7788044450:AAE08m5aDTc7nhuiG9PAqoB0pXGWLTic_0c"
+    token = "bot_token"
     if not token:
         print("Hata: TELEGRAM_BOT_TOKEN ortam değişkeni bulunamadı.")
         return
