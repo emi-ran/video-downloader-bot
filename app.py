@@ -283,8 +283,7 @@ def api_statistics():
     try:
         total_stats = get_total_statistics()
         platform_stats = get_platform_statistics()
-        recent_downloads = get_recent_downloads(5)
-        
+        # recent_downloads = get_recent_downloads(5)  # Artık kullanılmıyor
         return jsonify({
             'success': True,
             'total_statistics': {
@@ -304,21 +303,8 @@ def api_statistics():
                     'avg_processing_time': row[5] or 0
                 }
                 for row in platform_stats
-            ],
-            'recent_downloads': [
-                {
-                    'id': row[0],
-                    'ip_address': row[1],
-                    'platform': row[2],
-                    'video_title': row[3],
-                    'video_quality': row[4],
-                    'file_size': row[5],
-                    'processing_time': row[6],
-                    'status': row[7],
-                    'timestamp': row[8]
-                }
-                for row in recent_downloads
             ]
+            # 'recent_downloads' alanı kaldırıldı
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
