@@ -118,6 +118,34 @@ def download_video(url: str, video_index: int, audio_index: int = None, progress
         if audio_filename and os.path.exists(audio_filename):
             os.remove(audio_filename)
 
+def download_audio_as_mp3(url: str, audio_index: int) -> tuple[bool, str]:
+    """
+    Verilen YouTube linki ve ses stream indexine göre MP3 dosyası olarak indirir.
+    Başarılı olursa (True, dosya_yolu), hata olursa (False, hata_mesajı) döndürür.
+    """
+    import tempfile
+    import shutil
+    temp_dir = tempfile.mkdtemp()
+    try:
+        yt = YouTube(url)
+        audio_streams = yt.streams.filter(only_audio=True, file_extension='mp4').order_by('abr').desc()
+        if not (1 <= audio_index <= len(audio_streams)):
+            raise ValueError("Geçersiz ses indexi.")
+        selected_audio = audio_streams[audio_index - 1]
+        base_name = safe_filename(yt.title)
+        audio_path = os.path.join(temp_dir, f"{base_name}_audio.mp4")
+        mp3_path = os.path.join(temp_dir, f"{base_name}.mp3")
+        selected_audio.download(output_path=temp_dir, filename=f"{base_name}_audio.mp4")
+        # ffmpeg ile mp3'e çevir
+        cmd = ["ffmpeg", "-y", "-i", audio_path, "-vn", "-ab", "192k", "-ar", "44100", "-f", "mp3", mp3_path]
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return True, mp3_path
+    except Exception as e:
+        return False, f"MP3 indirme hatası: {str(e)}"
+    finally:
+        # temp_dir ve dosyalar silinmez, çünkü dosya döndürülüyor. Temizlik işlemi indirme sonrası yapılabilir.
+        pass
+
 def main():
     """Ana program akışını yöneten ve kütüphane fonksiyonlarını test eden fonksiyon."""
     video_url = input("Lütfen indirmek istediğiniz YouTube video linkini girin: ")

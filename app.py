@@ -6,7 +6,7 @@ import base64
 import requests
 from datetime import datetime, timedelta
 from flask import Flask, request, render_template, send_from_directory, jsonify, url_for, session, redirect
-from youtubeDownloader import get_video_title, get_video_streams, get_audio_streams, download_video
+from youtubeDownloader import get_video_title, get_video_streams, get_audio_streams, download_video, download_audio_as_mp3
 from instagramDownloader import download_instagram_video, get_instagram_info
 from tiktokDownloader import download_tiktok_video, get_tiktok_info
 from pytubefix import YouTube
@@ -95,6 +95,10 @@ def api_process():
         if not status:
             audio_streams = []
         
+        # Her ses stream'ine mp3 seçeneği ekle (frontend için)
+        for stream in audio_streams:
+            stream['mp3_available'] = True
+        
         # Kapak fotoğrafı
         try:
             thumbnail_url = YouTube(url).thumbnail_url
@@ -169,23 +173,23 @@ def api_convert():
     audio_index = data.get('audio_index')
     video_title = data.get('video_title')
     video_quality = data.get('video_quality')
+    mp3 = data.get('mp3')  # yeni parametre: mp3 olarak mı indirilecek?
     
     if not url or not platform:
         return jsonify({'success': False, 'error': 'Eksik parametre.'}), 400
     
     file_id = str(uuid.uuid4())
-    out_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.mp4")
+    # mp3 ise dosya uzantısı mp3 olacak
+    out_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.mp3" if mp3 else f"{file_id}.mp4")
     
     # İşlem başlangıç zamanı
     start_time = time.time()
     
     try:
-        # YouTube
-        if platform == 'youtube':
-            # audio_index None ise None olarak geç, 0 değil
-            status, result = download_video(url, video_index, audio_index if audio_index is not None else None)
+        if platform == 'youtube' and mp3:
+            # Sadece ses stream'i seçildi ve mp3 olarak indirilecek
+            status, result = download_audio_as_mp3(url, audio_index)
             if not status:
-                # Hata durumunu veritabanına kaydet
                 add_download(
                     ip_address=request.remote_addr,
                     user_agent=request.headers.get('User-Agent', ''),
@@ -265,17 +269,19 @@ def api_convert():
 
 @app.route('/download/<file_id>')
 def download_file(file_id):
-    file_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.mp4")
-    if not os.path.exists(file_path):
+    mp4_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.mp4")
+    mp3_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.mp3")
+    if os.path.exists(mp4_path):
+        file_name = f"{file_id}.mp4"
+    elif os.path.exists(mp3_path):
+        file_name = f"{file_id}.mp3"
+    else:
         return "Dosya bulunamadı veya süresi doldu.", 404
-    
-    # İndirme sayısını artır (basit bir yaklaşım)
     try:
         update_download_count(file_id)
     except:
-        pass  # Hata durumunda işlemi durdurma
-    
-    return send_from_directory(DOWNLOAD_DIR, f"{file_id}.mp4", as_attachment=True)
+        pass
+    return send_from_directory(DOWNLOAD_DIR, file_name, as_attachment=True)
 
 @app.route('/api/statistics')
 def api_statistics():

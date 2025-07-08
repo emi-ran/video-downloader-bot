@@ -592,7 +592,36 @@
                 qualityOptions.appendChild(btn);
             });
             
-            // Ses stream'lerini global olarak sakla
+            // MP3 seçenekleri için ayrı bir satır/div
+            if (data.audio_streams && data.audio_streams.length > 0) {
+                const mp3Row = document.createElement('div');
+                mp3Row.style.marginTop = '12px';
+                mp3Row.style.display = 'flex';
+                mp3Row.style.gap = '10px';
+                data.audio_streams.forEach((stream) => {
+                    if (stream.mp3_available) {
+                        const mp3Btn = document.createElement('button');
+                        mp3Btn.className = 'quality-btn';
+                        const sizeStr = stream.size_mb ? ` (${stream.size_mb}MB)` : '';
+                        mp3Btn.textContent = `${stream.abr} (MP3)${sizeStr}`;
+                        mp3Btn.onclick = () => {
+                            selectedVideoIndex = null;
+                            selectedAudioIndex = stream.index;
+                            window.selectedMp3 = true;
+                            document.querySelectorAll('.quality-btn').forEach(btn => btn.classList.remove('selected'));
+                            mp3Btn.classList.add('selected');
+                            document.getElementById('audioOptions').style.display = 'none';
+                            const downloadBtn = document.getElementById('downloadBtn');
+                            downloadBtn.style.display = 'block';
+                            downloadBtn.onclick = () => downloadVideo();
+                        };
+                        mp3Row.appendChild(mp3Btn);
+                    }
+                });
+                qualityOptions.appendChild(document.createElement('br'));
+                qualityOptions.appendChild(mp3Row);
+            }
+            
             window.audioStreams = data.audio_streams || [];
             
             document.getElementById('resultSection').style.display = 'block';
@@ -812,7 +841,6 @@
             const audioOptions = document.getElementById('audioOptions');
             audioOptions.style.display = 'block';
             audioOptions.innerHTML = '<p>Ses kalitesi seçin:</p>';
-            
             if (window.audioStreams && window.audioStreams.length > 0) {
                 window.audioStreams.forEach((stream, index) => {
                     const btn = document.createElement('button');
@@ -820,9 +848,10 @@
                     const sizeStr = stream.size_mb ? `${stream.size_mb}MB` : 'Bilinmiyor';
                     btn.textContent = `${stream.abr} (${sizeStr})`;
                     btn.onclick = () => {
-                        selectedAudioIndex = stream.index; // API'den gelen index'i kullan
+                        selectedAudioIndex = stream.index;
                         document.querySelectorAll('#audioOptions .quality-btn').forEach(b => b.classList.remove('selected'));
                         btn.classList.add('selected');
+                        window.selectedMp3 = false;
                     };
                     audioOptions.appendChild(btn);
                 });
@@ -836,15 +865,10 @@
             const downloadBtn = document.getElementById('downloadBtn');
             const progress = document.getElementById('progress');
             const videoInfo = document.getElementById('videoInfo');
-            
-            // Kalite seçeneklerini gizle, sadece progress bar'ı göster
             videoInfo.style.display = 'none';
             progress.style.display = 'block';
             downloadBtn.disabled = true;
-            
-            // Fake progress bar başlat
             startFakeProgress();
-            
             try {
                 const response = await fetch('/api/convert', {
                     method: 'POST',
@@ -857,30 +881,24 @@
                         video_index: selectedVideoIndex,
                         audio_index: selectedAudioIndex,
                         video_title: currentVideoTitle,
-                        video_quality: currentVideoQuality
+                        video_quality: currentVideoQuality,
+                        mp3: window.selectedMp3 === true // mp3 seçildiyse true gönder
                     })
                 });
-                
                 const data = await response.json();
-                
                 if (data.success) {
-                    // Progress bar'ı tamamla
                     completeProgress();
-                    
-                    // Başarı mesajını göster
                     setTimeout(() => {
                         showSuccess(`Video başarıyla indirildi! <a href="${data.download_url}" class="download-link">İndir</a><br><small>${data.info}</small>`);
                         progress.style.display = 'none';
-                        loadStatistics(); // İstatistikleri güncelle
+                        loadStatistics();
                     }, 500);
                 } else {
-                    // Hata durumunda progress bar'ı gizle ve hata göster
                     progress.style.display = 'none';
                     videoInfo.style.display = 'block';
                     showError(data.error);
                 }
             } catch (error) {
-                // Hata durumunda progress bar'ı gizle ve hata göster
                 progress.style.display = 'none';
                 videoInfo.style.display = 'block';
                 showError('İndirme sırasında hata oluştu: ' + error.message);
