@@ -13,6 +13,7 @@ from pytubefix import YouTube
 from database import init_db, add_download, update_download_count, get_total_statistics, get_platform_statistics, get_recent_downloads
 from config import config
 import sqlite3
+import shutil
 
 # Environment'dan config seçimi
 config_name = os.environ.get('FLASK_ENV', 'default')
@@ -58,9 +59,11 @@ def cleanup_files():
         to_delete = []
         for file_id, ts in list(file_registry.items()):
             if now - ts > 3600:  # 1 saat
-                file_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.mp4")
-                if os.path.exists(file_path):
-                    os.remove(file_path)
+                # Hem .mp4 hem .mp3 dosyalarını kontrol et
+                for ext in ['mp4', 'mp3']:
+                    file_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.{ext}")
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
                 to_delete.append(file_id)
         for file_id in to_delete:
             file_registry.pop(file_id, None)
@@ -189,6 +192,22 @@ def api_convert():
         if platform == 'youtube' and mp3:
             # Sadece ses stream'i seçildi ve mp3 olarak indirilecek
             status, result = download_audio_as_mp3(url, audio_index)
+            if not status:
+                add_download(
+                    ip_address=request.remote_addr,
+                    user_agent=request.headers.get('User-Agent', ''),
+                    platform=platform,
+                    link=url,
+                    video_title=video_title,
+                    video_quality=video_quality,
+                    status="error",
+                    error_message=result
+                )
+                return jsonify({'success': False, 'error': result}), 400
+            os.rename(result, out_path)
+        elif platform == 'youtube':
+            # video_index ve audio_index ile video indirme işlemi
+            status, result = download_video(url, video_index, audio_index if audio_index is not None else None)
             if not status:
                 add_download(
                     ip_address=request.remote_addr,
@@ -538,6 +557,52 @@ def api_admin_charts():
             })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/cut', methods=['POST'])
+def api_cut():
+    data = request.json
+    file_id = data.get('file_id')
+    start = data.get('start')
+    end = data.get('end')
+    if not file_id or start is None or end is None:
+        return jsonify({'success': False, 'error': 'Eksik parametre.'}), 400
+    # Dosya yolunu bul (mp4 veya mp3)
+    mp4_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.mp4")
+    mp3_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.mp3")
+    if os.path.exists(mp4_path):
+        input_path = mp4_path
+        ext = 'mp4'
+    elif os.path.exists(mp3_path):
+        input_path = mp3_path
+        ext = 'mp3'
+    else:
+        return jsonify({'success': False, 'error': 'Dosya bulunamadı veya süresi doldu.'}), 404
+    # Yeni dosya adı
+    cut_id = str(uuid.uuid4())
+    output_path = os.path.join(DOWNLOAD_DIR, f"{cut_id}.{ext}")
+    # ffmpeg ile kesme işlemi
+    try:
+        # ffmpeg komutu: -ss start -to end -i input -c copy output
+        # -ss ve -to saniye cinsinden
+        import subprocess
+        cmd = [
+            'ffmpeg',
+            '-y',
+            '-ss', str(start),
+            '-to', str(end),
+            '-i', input_path,
+            '-c', 'copy',
+            output_path
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+        # Dosya başarıyla oluşturulduysa registry'ye ekle
+        file_registry[cut_id] = time.time()
+        save_registry()
+        # Dosya başarıyla oluşturulduysa linki döndür
+        download_url = url_for('download_file', file_id=cut_id, _external=True)
+        return jsonify({'success': True, 'download_url': download_url})
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Kesme işlemi başarısız: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000) 

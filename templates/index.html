@@ -889,7 +889,7 @@
                 if (data.success) {
                     completeProgress();
                     setTimeout(() => {
-                        showSuccess(`Video başarıyla indirildi! <a href="${data.download_url}" class="download-link">İndir</a><br><small>${data.info}</small>`);
+                        showSuccess(`Video başarıyla indirildi! <a href="${data.download_url}" class="download-link">İndir</a><br><small>${data.info}</small>`, data.download_url, data.file_type);
                         progress.style.display = 'none';
                         loadStatistics();
                     }, 500);
@@ -1034,10 +1034,174 @@
             errorEl.style.display = 'block';
         }
         
-        function showSuccess(message) {
+        function showSuccess(message, downloadUrl = null, fileType = 'video/mp4') {
             const successEl = document.getElementById('success');
+            // İndirme linklerini programatik indirme ile değiştir
+            if (downloadUrl) {
+                message = message.replace(/<a href=\"([^\"]+)\" class=\"download-link\">İndir<\/a>/g, function(_, link) {
+                    return `<a href="#" class="download-link" onclick="event.preventDefault(); safeDownload('${link}');">İndir</a>`;
+                });
+            }
             successEl.innerHTML = message;
             successEl.style.display = 'block';
+            // Eğer video dosyası ise preview ve cut paneli ekle
+            if (downloadUrl && (fileType === 'video/mp4' || fileType === 'video')) {
+                // Önce eski preview paneli varsa kaldır
+                const oldPreview = document.getElementById('videoPreviewPanel');
+                if (oldPreview) oldPreview.remove();
+                // Paneli oluştur
+                const panel = document.createElement('div');
+                panel.id = 'videoPreviewPanel';
+                panel.style.marginTop = '24px';
+                panel.style.background = 'var(--bg-card)';
+                panel.style.borderRadius = '12px';
+                panel.style.padding = '18px';
+                panel.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+                panel.style.textAlign = 'center';
+                // Video preview
+                const video = document.createElement('video');
+                video.id = 'previewVideo';
+                video.src = downloadUrl;
+                video.controls = true;
+                video.style.maxWidth = '100%';
+                video.style.borderRadius = '8px';
+                video.style.marginBottom = '18px';
+                panel.appendChild(video);
+                // Zaman kutuları ve butonlar
+                const controlsDiv = document.createElement('div');
+                controlsDiv.style.display = 'flex';
+                controlsDiv.style.justifyContent = 'center';
+                controlsDiv.style.gap = '16px';
+                controlsDiv.style.margin = '18px 0 10px 0';
+                // Başlangıç
+                const startInput = document.createElement('input');
+                startInput.type = 'text';
+                startInput.id = 'cutStart';
+                startInput.value = '00:00';
+                startInput.style.width = '70px';
+                startInput.style.textAlign = 'center';
+                startInput.style.marginRight = '4px';
+                const setStartBtn = document.createElement('button');
+                setStartBtn.textContent = 'Başlangıcı Seç';
+                setStartBtn.className = 'convert-btn';
+                setStartBtn.onclick = () => {
+                    const v = document.getElementById('previewVideo');
+                    startInput.value = secondsToTime(v.currentTime);
+                };
+                // Bitiş
+                const endInput = document.createElement('input');
+                endInput.type = 'text';
+                endInput.id = 'cutEnd';
+                endInput.value = '00:00'; // Video yüklendiğinde güncellenecek
+                endInput.style.width = '70px';
+                endInput.style.textAlign = 'center';
+                endInput.style.marginRight = '4px';
+                const setEndBtn = document.createElement('button');
+                setEndBtn.textContent = 'Bitişi Seç';
+                setEndBtn.className = 'convert-btn';
+                setEndBtn.onclick = () => {
+                    const v = document.getElementById('previewVideo');
+                    endInput.value = secondsToTime(v.currentTime);
+                };
+                controlsDiv.appendChild(startInput);
+                controlsDiv.appendChild(setStartBtn);
+                controlsDiv.appendChild(endInput);
+                controlsDiv.appendChild(setEndBtn);
+                panel.appendChild(controlsDiv);
+                // Cut butonu
+                const cutBtn = document.createElement('button');
+                cutBtn.textContent = 'Cut';
+                cutBtn.className = 'download-btn';
+                cutBtn.style.marginTop = '10px';
+                cutBtn.onclick = () => cutVideo(downloadUrl);
+                panel.appendChild(cutBtn);
+                // Progress ve yeni indirme linki için alan
+                const cutProgress = document.createElement('div');
+                cutProgress.id = 'cutProgress';
+                cutProgress.style.marginTop = '16px';
+                panel.appendChild(cutProgress);
+                // Video yüklendiğinde bitiş kutusunu güncelle
+                video.onloadedmetadata = function() {
+                    endInput.value = secondsToTime(video.duration);
+                };
+                // Paneli success mesajının altına ekle
+                successEl.appendChild(panel);
+            }
+        }
+        
+        // Yardımcı: saniyeyi mm:ss formatına çevir
+        function secondsToTime(sec) {
+            sec = Math.floor(sec);
+            const m = Math.floor(sec / 60);
+            const s = sec % 60;
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+        
+        // Yardımcı: mm:ss veya ss formatını saniyeye çevir
+        function timeToSeconds(str) {
+            if (!str) return 0;
+            if (str.includes(':')) {
+                const [m, s] = str.split(':').map(Number);
+                return m * 60 + s;
+            }
+            return Number(str);
+        }
+        
+        // Cut işlemi
+        async function cutVideo(downloadUrl) {
+            const start = document.getElementById('cutStart').value;
+            const end = document.getElementById('cutEnd').value;
+            const startSec = timeToSeconds(start);
+            const endSec = timeToSeconds(end);
+            if (isNaN(startSec) || isNaN(endSec) || startSec >= endSec) {
+                alert('Başlangıç ve bitiş zamanlarını doğru giriniz.');
+                return;
+            }
+            // file_id'yi linkten al
+            const fileIdMatch = downloadUrl.match(/\/download\/(.*?)(\.|$)/);
+            const fileId = fileIdMatch ? fileIdMatch[1] : null;
+            if (!fileId) {
+                alert('Dosya ID bulunamadı!');
+                return;
+            }
+            const cutProgress = document.getElementById('cutProgress');
+            cutProgress.innerHTML = '<div class="loading"><div class="spinner"></div>Video kesiliyor...</div>';
+            try {
+                const response = await fetch('/api/cut', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_id: fileId, start: startSec, end: endSec })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    cutProgress.innerHTML = `<div class="success">Kesilmiş video hazır! <a href="${data.download_url}" class="download-link">İndir</a></div>`;
+                } else {
+                    cutProgress.innerHTML = `<div class="error">${data.error}</div>`;
+                }
+            } catch (e) {
+                cutProgress.innerHTML = `<div class="error">Bir hata oluştu: ${e.message}</div>`;
+            }
+        }
+        
+        // Programatik indirme fonksiyonu
+        async function safeDownload(url) {
+            // Önce dosya var mı kontrol et
+            try {
+                const headResp = await fetch(url, { method: 'HEAD' });
+                if (headResp.ok) {
+                    // Dosya hazır, programatik olarak indir
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = '';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => document.body.removeChild(a), 100);
+                } else {
+                    showError('Dosya henüz hazır değil. Lütfen birkaç saniye sonra tekrar deneyin.');
+                }
+            } catch (e) {
+                showError('İndirme sırasında hata oluştu. Lütfen tekrar deneyin.');
+            }
         }
     </script>
 </body>
