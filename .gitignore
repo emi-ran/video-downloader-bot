@@ -2,3 +2,9 @@
 /videos
 /__pycache__
 /downloads
+venv/
+instance/
+*.pyc
+*.sqlite
+*.log
+/static/downloads/
