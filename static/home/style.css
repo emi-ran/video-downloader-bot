@@ -399,22 +399,127 @@ body {
         margin: 0;
         border-radius: 0;
     }
-
     .content {
-        padding: 24px;
+        padding: 12px;
     }
-
     .header {
-        padding: 24px;
+        padding: 16px;
     }
-
+    .header h1 {
+        font-size: 1.5em;
+    }
+    .header p {
+        font-size: 1em;
+    }
+    .input-section {
+        margin-bottom: 20px;
+    }
+    .url-input {
+        padding: 12px;
+        font-size: 0.95em;
+    }
+    .convert-btn {
+        padding: 12px 18px;
+        font-size: 1em;
+    }
+    .supported-platforms {
+        padding: 10px;
+        font-size: 0.95em;
+    }
+    .platform-badges {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .platform-badge {
+        padding: 8px 10px;
+        font-size: 0.9em;
+    }
+    .result-section {
+        margin-top: 18px;
+    }
+    .video-info {
+        padding: 10px;
+    }
+    .video-title {
+        font-size: 1.1em;
+        margin-bottom: 10px;
+    }
+    .thumbnail {
+        max-width: 100%;
+        width: 100%;
+        height: auto;
+        margin-bottom: 12px;
+    }
+    .quality-options {
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    .quality-btn {
+        padding: 10px 12px;
+        font-size: 0.95em;
+    }
+    .audio-options {
+        margin-top: 12px;
+        padding-top: 10px;
+    }
+    .download-btn {
+        padding: 12px 18px;
+        font-size: 1em;
+        margin-top: 12px;
+    }
+    .progress {
+        height: 18px;
+        margin: 12px 0;
+    }
+    .progress-text {
+        font-size: 0.95em;
+    }
+    .error, .success {
+        padding: 10px;
+        margin: 12px 0;
+        font-size: 0.95em;
+    }
+    .download-link {
+        padding: 10px 12px;
+        font-size: 0.95em;
+        margin-top: 10px;
+    }
+    .stats-section {
+        margin-top: 24px;
+        padding-top: 12px;
+    }
     .stats-grid {
         flex-direction: column;
-        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
     }
-
     .stat-card {
-        width: 100%;
-        max-width: none;
+        padding: 12px;
+        min-width: 0;
+        font-size: 0.95em;
+    }
+    .stat-number {
+        font-size: 1.3em;
+    }
+    .platform-stats {
+        padding: 10px;
+    }
+    .platform-stats h3 {
+        font-size: 1em;
+        margin-bottom: 8px;
+    }
+    .platform-item {
+        padding: 8px 0;
+        font-size: 0.95em;
+    }
+    .loading {
+        padding: 10px;
+        font-size: 0.95em;
+    }
+    .spinner {
+        width: 24px;
+        height: 24px;
+        border-width: 3px;
     }
 }
