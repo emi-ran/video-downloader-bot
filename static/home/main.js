@@ -441,6 +441,7 @@ function showError(message) {
 function showSuccess(message, downloadUrl = null, fileType = "video/mp4") {
   const successEl = document.getElementById("success");
   if (downloadUrl) {
+    // Tüm indirme linklerinde safeDownload fonksiyonunu kullan
     message = message.replace(
       /<a href=\"([^\"]+)\" class=\"download-link\">İndir<\/a>/g,
       function (_, link) {
@@ -573,6 +574,7 @@ async function cutVideo(downloadUrl) {
 }
 async function safeDownload(url) {
   try {
+    // HEAD isteğiyle dosya hazır mı kontrol et
     const headResp = await fetch(url, { method: "HEAD" });
     if (headResp.ok) {
       const a = document.createElement("a");

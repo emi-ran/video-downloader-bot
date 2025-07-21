@@ -8,3 +8,4 @@ instance/
 *.sqlite
 *.log
 /static/downloads/
+downloads.db

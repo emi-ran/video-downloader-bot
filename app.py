@@ -300,7 +300,9 @@ def download_file(file_id):
         update_download_count(file_id)
     except:
         pass
-    return send_from_directory(DOWNLOAD_DIR, file_name, as_attachment=True)
+    response = send_from_directory(DOWNLOAD_DIR, file_name, as_attachment=True)
+    response.headers["Content-Disposition"] = f"attachment; filename={file_name}"
+    return response
 
 @app.route('/api/statistics')
 def api_statistics():
@@ -582,15 +584,15 @@ def api_cut():
     output_path = os.path.join(DOWNLOAD_DIR, f"{cut_id}.{ext}")
     # ffmpeg ile kesme işlemi
     try:
-        # ffmpeg komutu: -ss start -to end -i input -c copy output
-        # -ss ve -to saniye cinsinden
+        # ffmpeg komutu: -i input -ss start -to end -c copy output
+        # -ss ve -to saniye cinsinden, -i'den sonra kullanılırsa daha hassas olur
         import subprocess
         cmd = [
             'ffmpeg',
             '-y',
+            '-i', input_path,
             '-ss', str(start),
             '-to', str(end),
-            '-i', input_path,
             '-c', 'copy',
             output_path
         ]
@@ -605,4 +607,4 @@ def api_cut():
         return jsonify({'success': False, 'error': f'Kesme işlemi başarısız: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=5000) 
+    app.run(debug=False, host='0.0.0.0', port=5123) 
